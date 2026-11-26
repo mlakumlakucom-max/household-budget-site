@@ -1,17 +1,22 @@
-// A working best-site-01 entry (Node 22, standard library only): the site is this directory's app/ folder, plain
-// static files a browser opens at app/index.html (ES modules, CSS, no build step), its content held in its own files:
-// nothing it runs, styles or shows loads over the network. The program hands it in: it copies app/ and screenshots/
-// from beside this file to /output and writes /output/dossier.json, the summary the judge reads (your screenshots, the
-// first load's files and bytes, and your source), with the vendored make.fun library. Leave vendor/makefun-frontend.ts
-// as it is: the scorer requires dossier.json to be byte for byte what its own copy writes.
+// DompetKeluarga — handover script (Node 22, standard library only).
 //
-// A starting point, not a winner: a plain recipe collection, a list of recipes and a page for each. Build the site the
-// brief asks for in app/ (its content, ease of use, a phone layout, its look), put 3 or 4 PNG or JPEG screenshots of
-// it running in screenshots/ (the first by name is the cover; one may be a 390 x 844 phone view; shots.json says which
-// views this starter's were taken of), and run it.
+// This file is the entrypoint that hands our household-budget site to the
+// grader. The site itself lives in app/ next to this file: plain static
+// files (HTML, CSS, ES modules) that any static server can serve, with all
+// of its content in its own files — nothing is fetched from the network at
+// runtime. The pictures in screenshots/ are real renders of the site in a
+// browser; the first one, by name, is the cover image.
 //
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+// What this script does, step by step:
+//   1. Work out where to write: /output inside the grader's container, or
+//      the directory named by MAKEFUN_OUTPUT_DIR when run locally.
+//   2. Copy app/ and (when present) screenshots/ into that directory.
+//   3. Build dossier.json with the vendored make.fun library, so the judge
+//      gets the cover image, the first load's files and sizes, and a listing
+//      of our source. vendor/makefun-frontend.ts must stay untouched: the
+//      scorer rebuilds the dossier with its own copy and compares bytes.
+//
+// Run it locally with:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -19,18 +24,38 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-frontend.ts';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+// The scorer's caps, from the kit's reference/gate.json. text_max_bytes is
+// the only one that shapes the dossier's bytes; the rest mirror the limits
+// the scorer would refuse an entry for (at most 4 screenshots, each at most
+// 256 KiB; at most 993 files and directories in app/, at most 16 MiB of app
+// files — app/ shares /output's own 1000-entry cap with screenshots/ and
+// dossier.json).
+const DOSSIER_LIMITS = {
+  text_max_bytes: 163840,
+  screenshots: { max: 4, max_bytes: 262144 },
+  app_max_files: 993,
+  app_max_bytes: 16777216,
+};
 
-mkdirSync(out, { recursive: true });
-cpSync(join(here, 'app'), join(out, 'app'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+const repoRoot = fileURLToPath(new URL('.', import.meta.url));
+const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
-// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files and directories in app/ or
-// 16 MiB of app files: app/ counts beside /output's own 1000-entry cap, its screenshots/ and dossier.json).
-writeFileSync(
-  join(out, 'dossier.json'),
-  buildDossier(out, { text_max_bytes: 163840, screenshots: { max: 4, max_bytes: 262144 }, app_max_files: 993, app_max_bytes: 16777216 }),
-);
+function handIn() {
+  mkdirSync(outputDir, { recursive: true });
+
+  // The site itself. This copy is unconditional: a missing app/ should fail
+  // loudly rather than hand in an empty entry.
+  cpSync(join(repoRoot, 'app'), join(outputDir, 'app'), { recursive: true });
+
+  // The screenshots folder is always created, even when there is nothing to
+  // put in it yet, so the layout of /output never depends on the pictures.
+  mkdirSync(join(outputDir, 'screenshots'), { recursive: true });
+  if (existsSync(join(repoRoot, 'screenshots'))) {
+    cpSync(join(repoRoot, 'screenshots'), join(outputDir, 'screenshots'), { recursive: true });
+  }
+
+  const dossier = buildDossier(outputDir, DOSSIER_LIMITS);
+  writeFileSync(join(outputDir, 'dossier.json'), dossier);
+}
+
+handIn();
